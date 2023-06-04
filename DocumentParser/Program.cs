@@ -28,7 +28,7 @@ List<double>? ChangeRange(TableCell cell)
 void ReadFromFile(InputTable inputData1)
 {
     using var doc = WordprocessingDocument.Open("Content/Input.docx", false);
-    
+
     // Получаем первую таблицу из документа Word
     var table = doc.MainDocumentPart.Document.Body.Elements<Table>().FirstOrDefault();
 
@@ -48,7 +48,7 @@ void ReadFromFile(InputTable inputData1)
             QuantityMeaningDischarges = /*int.Parse(cells[7].InnerText)*/ cells[7].InnerText,
             FrequencyRegister = /*int.Parse(cells[7].InnerText)*/ cells[8].InnerText,
         };
-            
+
         inputData1.Parameters.Add(parameter);
     }
 }
@@ -59,7 +59,7 @@ void WriteToFile(InputTable inputTable)
     {
         // Получаем первую таблицу из документа Word
         var table = doc.MainDocumentPart.Document.Body.Elements<Table>().FirstOrDefault();
-        
+
         var props = new TableProperties(
             new TableBorders(
                 new TopBorder
@@ -90,62 +90,206 @@ void WriteToFile(InputTable inputTable)
                 new InsideVerticalBorder
                 {
                     Val = new EnumValue<BorderValues>(BorderValues.Single),
-                    Size = 1
+                    Size = 1 
                 }));
         
         table.AppendChild(props);
-        
+
+
         for (var i = 1; i < inputTable.Parameters.Count; i++)
         {
             var newRow = new TableRow();
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text("")))));
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(inputTable.Parameters[i].Designation)))));
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(inputTable.Parameters[i].Signal)))));
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(inputTable.Parameters[i].Address)))));
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(inputTable.Parameters[i].TypeSignal)))));
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(inputTable.Parameters[i].Unit)))));
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(inputTable.Parameters[i].TypeSignal)))));
-           
-            newRow.AppendChild(inputTable.Parameters[i].TypeSignal == "BNR"
-                ? new TableCell(new Paragraph(new Run(new Text("00"))))
-                : new TableCell(new Paragraph(new Run(new Text("")))));
-            
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text("28")))));
+            if (inputTable.Parameters[i].TypeSignal == "BNR")
+            {
+                
+                // ID параметра
+               newRow.AppendChild(GetCell(""));
+               
+                // Наименование параметра
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].Designation));
+                
+                // Расшифровка наименования параметра
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].Signal));
+                
+                //Label
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].Address));
+                
+                // Тип параметра
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].TypeSignal));
+                
+                // Единица измерения
+                newRow.AppendChild(GetCell(GetOutputUnit(inputTable.Parameters[i].Unit)));
 
-            
+                //Тип матрицы состояния (SSM)
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].TypeSignal));
+                
+                //ИИП (SDI)
+                newRow.AppendChild(GetCell("00"));
+                
+                //СЗР (MSB)
+                newRow.AppendChild(GetCell("28"));
 
-            newRow.AppendChild(inputTable.Parameters[i].TypeSignal == "BNR" &&
-                               inputTable.Parameters[i].QuantityMeaningDischarges == "15"
-                ? new TableCell(new Paragraph(new Run(new Text("14"))))
-                : new TableCell(new Paragraph(new Run(new Text("13")))));
-            
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(inputTable.Parameters[i].HighDischargesPrice)))));
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text("")))));
+                // МЗР (LSB)
+                newRow.AppendChild(inputTable.Parameters[i].QuantityMeaningDischarges switch
+                {
+                    "15" => GetCell("14"),
+                    "16" => GetCell("13"),
+                    _ => GetCell("")
+                });
 
+                // НСР (MSB Weight In Units
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].HighDischargesPrice));
+                
+                var usingSignBit = inputTable.Parameters[i].ChangeRange == null 
+                ? "N/A"
+                : inputTable.Parameters[i].ChangeRange[0] < 0 
+                    ? "YES"
+                    : "NO";
+                // Использование знакового разряда
+                newRow.AppendChild(GetCell(usingSignBit));
+                
+                // Физический диапазон
+                var changeRange = inputTable.Parameters[i].ChangeRange;
+                newRow.AppendChild(changeRange != null
+                    ? GetCell(string.Join("…", changeRange))
+                    : GetCell("N/A"));
+                
+                // Интервал обновления (refresh time), мс
+                newRow.AppendChild(int.TryParse(inputTable.Parameters[i].FrequencyRegister, out var fr)
+                    ? GetCell((1000 / fr).ToString())
+                    : GetCell(""));
 
-            var changeRange = inputTable.Parameters[i].ChangeRange;
-            if (changeRange != null)
-                newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(string.Join("...", changeRange))))));
+                // Время задержки(Latency time), ms
+                newRow.AppendChild(GetCell("TBD"));
+                
+                // Значение в «0»
+                newRow.AppendChild(GetCell("N/A"));
+                
+                // Значение в «1»
+                newRow.AppendChild(GetCell("N/A"));
+                
+                //Комментарии
+                newRow.AppendChild(GetCell(""));
 
-            newRow.AppendChild(int.TryParse(inputTable.Parameters[i].FrequencyRegister, out var fr)
-                ? new TableCell(new Paragraph(new Run(new Text((1000/fr).ToString()))))
-                : new TableCell(new Paragraph(new Run(new Text("")))));
-             
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text("TBD")))));
-            
-            newRow.AppendChild(inputTable.Parameters[i].TypeSignal == "BNR"
-                ? new TableCell(new Paragraph(new Run(new Text("N/A"))))
-                : new TableCell(new Paragraph(new Run(new Text("")))));
-            
-            newRow.AppendChild(inputTable.Parameters[i].TypeSignal == "BNR"
-                ? new TableCell(new Paragraph(new Run(new Text("N/A"))))
-                : new TableCell(new Paragraph(new Run(new Text("")))));
-            
-            newRow.AppendChild(new TableCell(new Paragraph(new Run(new Text("")))));
+                table.AppendChild(newRow);
+            }
 
-            table.AppendChild(newRow);
+            if (inputTable.Parameters[i].TypeSignal == "DW")
+            {
+                // ID параметра
+                newRow.AppendChild(GetCell(""));
+                
+                // Наименование параметра
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].Designation));
+                
+                // Расшифровка наименования параметра
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].Signal));
+                
+                //Label
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].Address));
+                
+                // Тип параметра
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].TypeSignal));
+                
+                // Единица измерения
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].Unit));
+                
+                //Тип матрицы состояния (SSM)
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].TypeSignal));
+                
+                //ИИП (SDI)
+                newRow.AppendChild(GetCell("00"));
+                
+                //СЗР (MSB)
+                newRow.AppendChild(GetCell("28"));
+
+                // МЗР (LSB)
+                newRow.AppendChild(inputTable.Parameters[i].QuantityMeaningDischarges switch
+                {
+                    "15" => GetCell("14"),
+                    "16" => GetCell("13"),
+                    _ => GetCell("")
+                });
+
+                // НСР (MSB Weight In Units
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].HighDischargesPrice));
+                
+                var usingSignBit = inputTable.Parameters[i].ChangeRange == null 
+                    ? "N/A"
+                    : inputTable.Parameters[i].ChangeRange[0] < 0 
+                        ? "YES"
+                        : "NO";
+                // Использование знакового разряда
+                newRow.AppendChild(GetCell(usingSignBit));
+                
+                // Физический диапазон
+                var changeRange = inputTable.Parameters[i].ChangeRange;
+                newRow.AppendChild(changeRange != null
+                    ? GetCell(string.Join("…", changeRange))
+                    : GetCell("N/A"));
+                
+                // Интервал обновления (refresh time), мс
+                newRow.AppendChild(int.TryParse(inputTable.Parameters[i].FrequencyRegister, out var fr)
+                    ? GetCell((1000 / fr).ToString())
+                    : GetCell(""));
+
+                // Время задержки(Latency time), ms
+                newRow.AppendChild(GetCell("TBD"));
+                
+                // Значение в «0»
+                newRow.AppendChild(GetCell("N/A"));
+                
+                // Значение в «1»
+                newRow.AppendChild(GetCell("N/A"));
+                
+                //Комментарии
+                newRow.AppendChild(GetCell(""));
+                
+                table.AppendChild(newRow);
+            }
+            
         }
+
         // Сохраняем изменения в документе Word
         doc.MainDocumentPart.Document.Save();
     }
+}
+
+string GetOutputUnit(string? unit)
+{
+    return unit switch
+    {
+        "град" => "Deg",
+        "" => "",
+        "мм" => "mm",
+        "град/c" => "Deg/s",
+        "оC" => "оC",
+        "ед." => "1",
+        "N/A" => "N/A",
+        _ => ""
+    };
+}
+
+TableCell GetCell(string value)
+{
+    var run = new Run();
+    run.AppendChild(new Text(value));
+    
+    var paragraph = new Paragraph(run);
+    var runProp = new RunProperties();
+ 
+    var runFont = new RunFonts
+    {
+        Ascii = "Arial",
+        HighAnsi = "Arial"
+    };
+
+    var size = new FontSize { Val = new StringValue("14") };
+ 
+    runProp.Append(runFont);
+    runProp.Append(size);
+ 
+    run.PrependChild(runProp);
+
+    return new TableCell(paragraph);
 }
