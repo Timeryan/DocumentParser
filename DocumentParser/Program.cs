@@ -25,12 +25,47 @@ List<double>? ChangeRange(TableCell cell)
         : null;
 }
 
+List<DiscreteTable> GetDiscreteTables(WordprocessingDocument? document)
+{
+    var discreteTables = new List<DiscreteTable>();
+
+    if (document == null) return discreteTables;
+    
+    foreach (var table in document.MainDocumentPart.Document.Body.Elements<Table>().Skip(1))
+    {
+        var discreteTable = new DiscreteTable();
+        foreach (var row in table.Elements<TableRow>().Skip(2))
+        {
+            var cells = row.Elements<TableCell>().ToArray();
+           
+            if (cells[1].InnerText.Contains("Адрес слова"))
+            {
+                discreteTable.Address = Regex.Match(cells[1].InnerText, @"\d+").Value;
+            }
+
+            if (cells[2].InnerText.Contains('+'))
+            {
+                discreteTable.Parameters.Add(new DiscreteParameter
+                {
+                    Id = int.Parse(cells[0].InnerText),
+                    Status = cells[3].InnerText
+                });
+            }
+        }
+        discreteTables.Add(discreteTable);
+    }
+
+    return discreteTables;
+}
+
 void ReadFromFile(InputTable inputData1)
 {
     using var doc = WordprocessingDocument.Open("Content/Input.docx", false);
 
     // Получаем первую таблицу из документа Word
     var table = doc.MainDocumentPart.Document.Body.Elements<Table>().FirstOrDefault();
+
+    List<DiscreteTable> discreteTables = GetDiscreteTables(doc);
 
     // Обрабатываем таблицу
     foreach (var row in table.Elements<TableRow>().Skip(2))
@@ -49,16 +84,58 @@ void ReadFromFile(InputTable inputData1)
             FrequencyRegister = /*int.Parse(cells[7].InnerText)*/ cells[8].InnerText,
         };
 
-        inputData1.Parameters.Add(parameter);
+        if (parameter.TypeSignal == "DW")
+        {
+            var discreteTable = discreteTables.Where(s => s.Address == parameter.Address).FirstOrDefault();
+
+            foreach (var param in discreteTable.Parameters)
+            {
+                var par = new Parameter
+                {
+                    Signal = parameter.Signal,
+                    Designation = parameter.Designation + "_b" + param.Id,
+                    TypeSignal = parameter.TypeSignal,
+                    Unit = parameter.Unit,
+                    ChangeRange = parameter.ChangeRange,
+                    Address = parameter.Address,
+                    HighDischargesPrice = parameter.HighDischargesPrice,
+                    QuantityMeaningDischarges = parameter.QuantityMeaningDischarges,
+                    FrequencyRegister = parameter.FrequencyRegister,
+                    LSB = param.Id.ToString(),
+                    MSB = param.Id.ToString(),
+                    ValueInZero = "Нет команды",
+                    ValueInOne = param.Status
+                };
+
+                inputData1.Parameters.Add(par);
+            }
+        }
+        else
+        {
+            if (parameter.FrequencyRegister != "-") 
+                inputData1.Parameters.Add(parameter);
+        }
     }
 }
 
 void WriteToFile(InputTable inputTable)
 {
-    using (var doc = WordprocessingDocument.Open("Content/Template.docx", true))
+    using (var doc = WordprocessingDocument.Open("Content/Output.docx", true))
     {
         // Получаем первую таблицу из документа Word
-        var table = doc.MainDocumentPart.Document.Body.Elements<Table>().FirstOrDefault();
+        var table = doc.MainDocumentPart.Document.Body.Elements<Table>().ToArray()[11];
+
+        /*var e = table.Elements<TableProperties>().FirstOrDefault();
+
+        e.Append(new TableJustification {Val = TableRowAlignmentValues.Center});
+        */
+
+        TableRow[] rowsToDelete = table.Elements<TableRow>().Skip(1).ToArray();
+
+        foreach (var row in rowsToDelete)
+        {
+            row.Remove();
+        }
 
         var props = new TableProperties(
             new TableBorders(
@@ -157,7 +234,7 @@ void WriteToFile(InputTable inputTable)
                 // Интервал обновления (refresh time), мс
                 newRow.AppendChild(int.TryParse(inputTable.Parameters[i].FrequencyRegister, out var fr)
                     ? GetCell((1000 / fr).ToString())
-                    : GetCell(""));
+                    : GetCell("TBD"));
 
                 // Время задержки(Latency time), ms
                 newRow.AppendChild(GetCell("TBD"));
@@ -189,27 +266,22 @@ void WriteToFile(InputTable inputTable)
                 newRow.AppendChild(GetCell(inputTable.Parameters[i].Address));
                 
                 // Тип параметра
-                newRow.AppendChild(GetCell(inputTable.Parameters[i].TypeSignal));
+                newRow.AppendChild(GetCell("DW"));
                 
                 // Единица измерения
-                newRow.AppendChild(GetCell(inputTable.Parameters[i].Unit));
+                newRow.AppendChild(GetCell("N/A"));
                 
                 //Тип матрицы состояния (SSM)
-                newRow.AppendChild(GetCell(inputTable.Parameters[i].TypeSignal));
+                newRow.AppendChild(GetCell("DW"));
                 
                 //ИИП (SDI)
                 newRow.AppendChild(GetCell("00"));
                 
                 //СЗР (MSB)
-                newRow.AppendChild(GetCell("28"));
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].MSB));
 
                 // МЗР (LSB)
-                newRow.AppendChild(inputTable.Parameters[i].QuantityMeaningDischarges switch
-                {
-                    "15" => GetCell("14"),
-                    "16" => GetCell("13"),
-                    _ => GetCell("")
-                });
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].LSB));
 
                 // НСР (MSB Weight In Units
                 newRow.AppendChild(GetCell(inputTable.Parameters[i].HighDischargesPrice));
@@ -237,10 +309,10 @@ void WriteToFile(InputTable inputTable)
                 newRow.AppendChild(GetCell("TBD"));
                 
                 // Значение в «0»
-                newRow.AppendChild(GetCell("N/A"));
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].ValueInZero));
                 
                 // Значение в «1»
-                newRow.AppendChild(GetCell("N/A"));
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].ValueInOne));
                 
                 //Комментарии
                 newRow.AppendChild(GetCell(""));
@@ -272,10 +344,17 @@ string GetOutputUnit(string? unit)
 
 TableCell GetCell(string value)
 {
+    var tableCell = new TableCell();
+
+    var tableCellProperties = new TableCellProperties();
+    tableCellProperties.Append(new TableCellVerticalAlignment {Val = TableVerticalAlignmentValues.Center});
+    tableCellProperties.Append(new NoWrap {Val = OnOffOnlyValues.On});
+    
+    var paragraph = new Paragraph();
+    
     var run = new Run();
     run.AppendChild(new Text(value));
     
-    var paragraph = new Paragraph(run);
     var runProp = new RunProperties();
  
     var runFont = new RunFonts
@@ -283,13 +362,31 @@ TableCell GetCell(string value)
         Ascii = "Arial",
         HighAnsi = "Arial"
     };
-
+    
     var size = new FontSize { Val = new StringValue("14") };
- 
+    
+    var justification = new Justification()
+    {
+        Val = JustificationValues.Right
+    };
+    
+    var paragraphProperties = new ParagraphProperties();
+    paragraphProperties.Justification = new Justification()
+    {
+        Val = JustificationValues.Center
+    };
+
+    //runProp.InsertBefore(justification, runProp.Elements().FirstOrDefault());
     runProp.Append(runFont);
     runProp.Append(size);
- 
-    run.PrependChild(runProp);
 
-    return new TableCell(paragraph);
+    run.PrependChild(runProp);
+    
+    paragraph.Append(paragraphProperties);
+    paragraph.Append(run);
+
+    tableCell.Append(tableCellProperties);
+    tableCell.Append(paragraph);
+
+    return tableCell;
 }
