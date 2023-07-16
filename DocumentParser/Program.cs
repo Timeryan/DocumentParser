@@ -4,12 +4,35 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentParser;
 
-var inputData = new InputTable();
 
-ReadFromFile(inputData);
-WriteToFile(inputData);
-Console.WriteLine("Готово");
+Console.WriteLine("Начинаем обработку...");
+var inputFiles = GetInputFiles();
+var outputFile = GetOutputFile();
+Console.WriteLine($"Найдены входные файлы: {string.Join(", ", inputFiles.Select(Path.GetFileName))}");
 
+foreach (var inputFile in inputFiles)
+{
+    var inputData = new InputTable();
+    Console.WriteLine($"Чтение данных из файла: {inputFile}...");
+    ReadFromFile(inputData, inputFile);
+    Console.WriteLine($"\nЧтение данных из файла: {inputFile} завершено");
+
+    Console.WriteLine($"Запись данных из файла: {inputFile} в {outputFile}");
+    WriteToFile(inputData, outputFile);
+    Console.WriteLine($"\nЗапись данных из файла: {inputFile} в {outputFile} завершена");
+}
+Console.WriteLine("Обработка завершена.");
+Console.ReadKey();
+
+string[] GetInputFiles()
+{
+    return Directory.GetFiles("Content\\Input"); // получаем список файлов в директории
+}
+
+string GetOutputFile()
+{
+    return Directory.GetFiles("Content\\Output").FirstOrDefault(); // получаем список файлов в директории
+}
 
 List<double>? ChangeRange(TableCell cell)
 {
@@ -58,15 +81,27 @@ List<DiscreteTable> GetDiscreteTables(WordprocessingDocument? document)
     return discreteTables;
 }
 
-void ReadFromFile(InputTable inputData1)
+int LogProcessCount(int processCount, int count, string? text)
 {
-    using var doc = WordprocessingDocument.Open("Content/Input.docx", false);
+    Console.SetCursorPosition(0, Console.CursorTop);
+    processCount++;
+    Console.Write($"{text}: {processCount} из {count}");
+    return processCount;
+}
 
+void ReadFromFile(InputTable inputData1, string filePath)
+{
+    using var doc = WordprocessingDocument.Open(filePath, false);
+
+    inputData1.Name = doc.MainDocumentPart.Document.Body.Descendants<Paragraph>().FirstOrDefault().InnerText;
+    
     // Получаем первую таблицу из документа Word
     var table = doc.MainDocumentPart.Document.Body.Elements<Table>().FirstOrDefault();
 
     List<DiscreteTable> discreteTables = GetDiscreteTables(doc);
 
+    int count = table.Elements<TableRow>().Skip(2).Count();
+    int processCount = 0;
     // Обрабатываем таблицу
     foreach (var row in table.Elements<TableRow>().Skip(2))
     {
@@ -115,20 +150,28 @@ void ReadFromFile(InputTable inputData1)
             if (parameter.FrequencyRegister != "-") 
                 inputData1.Parameters.Add(parameter);
         }
+        processCount = LogProcessCount(processCount, count, $"Прочитанно строк из файла {filePath}");
     }
 }
 
-void WriteToFile(InputTable inputTable)
+void WriteToFile(InputTable inputTable, string filePath)
 {
-    using (var doc = WordprocessingDocument.Open("Content/Output.docx", true))
+    
+    using (var doc = WordprocessingDocument.Open(filePath, true))
     {
-        // Получаем первую таблицу из документа Word
-        var table = doc.MainDocumentPart.Document.Body.Elements<Table>().ToArray()[11];
-
-        /*var e = table.Elements<TableProperties>().FirstOrDefault();
-
-        e.Append(new TableJustification {Val = TableRowAlignmentValues.Center});
-        */
+        // Получаем таблицу 4.3.1 Определение интерфейсов
+        
+        Tuple<string, Table>[] documentTables = doc.MainDocumentPart.Document.Body
+            .Elements<Table>()
+            .Select(x=> new Tuple<string, Table>(x.PreviousSibling<Paragraph>().InnerText, x)).ToArray();
+        
+        
+        var outputTableName = documentTables.FirstOrDefault(x=>x.Item1.Contains("Определение интерфейсов")).Item2
+            .Descendants<TableRow>()
+            .FirstOrDefault(t => inputTable.Name.Contains(t.Elements<TableCell>().ToArray()[6].InnerText)).ToArray()[1].InnerText;
+            
+        
+        var table = documentTables.FirstOrDefault(x=>x.Item1.Contains(outputTableName)).Item2;
 
         TableRow[] rowsToDelete = table.Elements<TableRow>().Skip(1).ToArray();
 
@@ -172,7 +215,8 @@ void WriteToFile(InputTable inputTable)
         
         table.AppendChild(props);
 
-
+        int count = inputTable.Parameters.Count;
+        int processCount = 1;
         for (var i = 1; i < inputTable.Parameters.Count; i++)
         {
             var newRow = new TableRow();
@@ -320,6 +364,7 @@ void WriteToFile(InputTable inputTable)
                 table.AppendChild(newRow);
             }
             
+            processCount = LogProcessCount(processCount, count, $"Записанно строк в файл {outputFile}");
         }
 
         // Сохраняем изменения в документе Word
