@@ -4,6 +4,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentParser;
 
+const string RED_COLOR = "ed6868";
 
 Console.WriteLine("Начинаем обработку...");
 var inputFiles = GetInputFiles();
@@ -71,7 +72,7 @@ List<DiscreteTable> GetDiscreteTables(WordprocessingDocument? document)
                 discreteTable.Parameters.Add(new DiscreteParameter
                 {
                     Id = int.Parse(cells[0].InnerText),
-                    Status = cells[3].InnerText
+                    Status = cells[1].TableCellProperties?.VerticalMerge == null ? cells[3].InnerText : null
                 });
             }
         }
@@ -138,7 +139,7 @@ void ReadFromFile(InputTable inputData1, string filePath)
                     FrequencyRegister = parameter.FrequencyRegister,
                     LSB = param.Id.ToString(),
                     MSB = param.Id.ToString(),
-                    ValueInZero = "Нет команды",
+                    ValueInZero = "",
                     ValueInOne = param.Status
                 };
 
@@ -224,7 +225,7 @@ void WriteToFile(InputTable inputTable, string filePath)
             {
                 
                 // ID параметра
-               newRow.AppendChild(GetCell(""));
+                newRow.AppendChild(GetCell(outputTableName  + "-" + i.ToString("D3")));
                
                 // Наименование параметра
                 newRow.AppendChild(GetCell(inputTable.Parameters[i].Designation));
@@ -248,14 +249,17 @@ void WriteToFile(InputTable inputTable, string filePath)
                 newRow.AppendChild(GetCell("00"));
                 
                 //СЗР (MSB)
-                newRow.AppendChild(GetCell("28"));
+                newRow.AppendChild(inputTable.Parameters[i].QuantityMeaningDischarges switch
+                {
+                    "15" => GetCell("28"),
+                    _ => GetCell("", RED_COLOR)
+                });
 
                 // МЗР (LSB)
                 newRow.AppendChild(inputTable.Parameters[i].QuantityMeaningDischarges switch
                 {
                     "15" => GetCell("14"),
-                    "16" => GetCell("13"),
-                    _ => GetCell("")
+                    _ => GetCell("", RED_COLOR)
                 });
 
                 // НСР (MSB Weight In Units
@@ -298,7 +302,7 @@ void WriteToFile(InputTable inputTable, string filePath)
             if (inputTable.Parameters[i].TypeSignal == "DW")
             {
                 // ID параметра
-                newRow.AppendChild(GetCell(""));
+                newRow.AppendChild(GetCell(outputTableName  + "-" + i.ToString("D3")));
                 
                 // Наименование параметра
                 newRow.AppendChild(GetCell(inputTable.Parameters[i].Designation));
@@ -353,10 +357,10 @@ void WriteToFile(InputTable inputTable, string filePath)
                 newRow.AppendChild(GetCell("TBD"));
                 
                 // Значение в «0»
-                newRow.AppendChild(GetCell(inputTable.Parameters[i].ValueInZero));
+                newRow.AppendChild(GetCell("", RED_COLOR));
                 
                 // Значение в «1»
-                newRow.AppendChild(GetCell(inputTable.Parameters[i].ValueInOne));
+                newRow.AppendChild(GetCell(inputTable.Parameters[i].ValueInOne, String.IsNullOrEmpty(inputTable.Parameters[i].ValueInOne) ? RED_COLOR : null));
                 
                 //Комментарии
                 newRow.AppendChild(GetCell(""));
@@ -387,13 +391,20 @@ string GetOutputUnit(string? unit)
     };
 }
 
-TableCell GetCell(string value)
+TableCell GetCell(string value, string? backgroundColor = null)
 {
     var tableCell = new TableCell();
 
     var tableCellProperties = new TableCellProperties();
     tableCellProperties.Append(new TableCellVerticalAlignment {Val = TableVerticalAlignmentValues.Center});
     tableCellProperties.Append(new NoWrap {Val = OnOffOnlyValues.On});
+    if (backgroundColor != null)
+        tableCellProperties.Append(new DocumentFormat.OpenXml.Wordprocessing.Shading()
+        {
+            Color = "auto",
+            Fill = backgroundColor,
+            Val = ShadingPatternValues.Clear
+        });
     
     var paragraph = new Paragraph();
     
