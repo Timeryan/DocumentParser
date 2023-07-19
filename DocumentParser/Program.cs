@@ -64,7 +64,7 @@ List<DiscreteTable> GetDiscreteTables(WordprocessingDocument? document)
            
             if (cells[1].InnerText.Contains("Адрес слова"))
             {
-                discreteTable.Address = Regex.Match(cells[1].InnerText, @"\d+").Value;
+                discreteTable.Address = Regex.Match(cells[1].InnerText, @"\d{3}").Value;
             }
 
             if (cells[2].InnerText.Contains('+'))
@@ -72,6 +72,7 @@ List<DiscreteTable> GetDiscreteTables(WordprocessingDocument? document)
                 discreteTable.Parameters.Add(new DiscreteParameter
                 {
                     Id = int.Parse(cells[0].InnerText),
+                    Name = cells[1].InnerText,
                     Status = cells[1].TableCellProperties?.VerticalMerge == null ? cells[3].InnerText : null
                 });
             }
@@ -88,6 +89,12 @@ int LogProcessCount(int processCount, int count, string? text)
     processCount++;
     Console.Write($"{text}: {processCount} из {count}");
     return processCount;
+}
+
+void ErrorMessage(string text){
+    Console.ForegroundColor = ConsoleColor.Red;
+    Console.Write(text);
+    Console.ResetColor();
 }
 
 void ReadFromFile(InputTable inputData1, string filePath)
@@ -122,28 +129,34 @@ void ReadFromFile(InputTable inputData1, string filePath)
 
         if (parameter.TypeSignal == "DW")
         {
+            
             var discreteTable = discreteTables.Where(s => s.Address == parameter.Address).FirstOrDefault();
-
-            foreach (var param in discreteTable.Parameters)
-            {
-                var par = new Parameter
+            
+            if (discreteTable != null)
+                foreach (var param in discreteTable.Parameters)
                 {
-                    Signal = parameter.Signal,
-                    Designation = parameter.Designation + "_b" + param.Id,
-                    TypeSignal = parameter.TypeSignal,
-                    Unit = parameter.Unit,
-                    ChangeRange = parameter.ChangeRange,
-                    Address = parameter.Address,
-                    HighDischargesPrice = parameter.HighDischargesPrice,
-                    QuantityMeaningDischarges = parameter.QuantityMeaningDischarges,
-                    FrequencyRegister = parameter.FrequencyRegister,
-                    LSB = param.Id.ToString(),
-                    MSB = param.Id.ToString(),
-                    ValueInZero = "",
-                    ValueInOne = param.Status
-                };
+                    var par = new Parameter
+                    {
+                        Signal = param.Name,
+                        Designation = parameter.Designation + "_b" + param.Id,
+                        TypeSignal = parameter.TypeSignal,
+                        Unit = parameter.Unit,
+                        ChangeRange = parameter.ChangeRange,
+                        Address = parameter.Address,
+                        HighDischargesPrice = parameter.HighDischargesPrice,
+                        QuantityMeaningDischarges = parameter.QuantityMeaningDischarges,
+                        FrequencyRegister = parameter.FrequencyRegister,
+                        LSB = param.Id.ToString(),
+                        MSB = param.Id.ToString(),
+                        ValueInZero = "",
+                        ValueInOne = param.Status
+                    };
 
-                inputData1.Parameters.Add(par);
+                    inputData1.Parameters.Add(par);
+                }
+            else
+            {
+                ErrorMessage(inputData1.Name + " " + parameter.Address);
             }
         }
         else
@@ -165,13 +178,19 @@ void WriteToFile(InputTable inputTable, string filePath)
         Tuple<string, Table>[] documentTables = doc.MainDocumentPart.Document.Body
             .Elements<Table>()
             .Select(x=> new Tuple<string, Table>(x.PreviousSibling<Paragraph>().InnerText, x)).ToArray();
+
+        var temp = documentTables.FirstOrDefault(x => x.Item1.Contains("Определение интерфейсов")).Item2
+                            .Descendants<TableRow>()
+                            .FirstOrDefault(t => inputTable.Name.Contains(t.Elements<TableCell>().ToArray()[6].InnerText));
         
+        if (temp == null)
+        {
+            ErrorMessage("Не найдено определение интерфейса в документе для " + inputTable.Name);
+            return;
+        }
         
-        var outputTableName = documentTables.FirstOrDefault(x=>x.Item1.Contains("Определение интерфейсов")).Item2
-            .Descendants<TableRow>()
-            .FirstOrDefault(t => inputTable.Name.Contains(t.Elements<TableCell>().ToArray()[6].InnerText)).ToArray()[1].InnerText;
-            
-        
+        var outputTableName = temp.ToArray()[1].InnerText;
+
         var table = documentTables.FirstOrDefault(x=>x.Item1.Contains(outputTableName)).Item2;
 
         TableRow[] rowsToDelete = table.Elements<TableRow>().Skip(1).ToArray();
@@ -216,16 +235,16 @@ void WriteToFile(InputTable inputTable, string filePath)
         
         table.AppendChild(props);
 
-        int count = inputTable.Parameters.Count;
+        int count = inputTable.Parameters.Count + 1;
         int processCount = 1;
-        for (var i = 1; i < inputTable.Parameters.Count; i++)
+        for (var i = 0; i < inputTable.Parameters.Count; i++)
         {
             var newRow = new TableRow();
             if (inputTable.Parameters[i].TypeSignal == "BNR")
             {
                 
                 // ID параметра
-                newRow.AppendChild(GetCell(outputTableName  + "-" + i.ToString("D3")));
+                newRow.AppendChild(GetCell(outputTableName  + "-" + (i+1).ToString("D3")));
                
                 // Наименование параметра
                 newRow.AppendChild(GetCell(inputTable.Parameters[i].Designation));
@@ -240,7 +259,7 @@ void WriteToFile(InputTable inputTable, string filePath)
                 newRow.AppendChild(GetCell(inputTable.Parameters[i].TypeSignal));
                 
                 // Единица измерения
-                newRow.AppendChild(GetCell(GetOutputUnit(inputTable.Parameters[i].Unit)));
+                newRow.AppendChild(GetCell(GetOutputUnit(inputTable.Parameters[i].Unit), String.IsNullOrEmpty(GetOutputUnit(inputTable.Parameters[i].Unit)) ? RED_COLOR : null));
 
                 //Тип матрицы состояния (SSM)
                 newRow.AppendChild(GetCell(inputTable.Parameters[i].TypeSignal));
@@ -302,7 +321,7 @@ void WriteToFile(InputTable inputTable, string filePath)
             if (inputTable.Parameters[i].TypeSignal == "DW")
             {
                 // ID параметра
-                newRow.AppendChild(GetCell(outputTableName  + "-" + i.ToString("D3")));
+                newRow.AppendChild(GetCell(outputTableName  + "-" + (i+1).ToString("D3")));
                 
                 // Наименование параметра
                 newRow.AppendChild(GetCell(inputTable.Parameters[i].Designation));
@@ -383,8 +402,8 @@ string GetOutputUnit(string? unit)
         "град" => "Deg",
         "" => "",
         "мм" => "mm",
-        "град/c" => "Deg/s",
-        "оC" => "оC",
+        "град/с" => "Deg/s",
+        "оС" => "оC",
         "ед." => "1",
         "N/A" => "N/A",
         _ => ""
